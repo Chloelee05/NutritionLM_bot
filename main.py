@@ -9,12 +9,13 @@ from telegram.ext import (
     filters,
 )
 import os
-from supabase import create_client, Client
+from supabase import create_client
 
 # Supabase connection
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Telegram bot configuration
 TOKEN = os.getenv("BOT_TOKEN")
@@ -53,7 +54,14 @@ async def handle_otp(update: Update, context):
         return
 
     # Check OTP in Supabase
-    result = supabase.table("users").select("*").eq("telegram_otp", otp_input).execute()
+    result = (
+        supabase
+        .from_("users")
+        .select("*")
+        .eq("telegram_otp", otp_input)
+        .execute()
+    )
+
 
     if len(result.data) == 0:
         await update.message.reply_text("❌ OTP not found. Please try again.")
@@ -62,11 +70,16 @@ async def handle_otp(update: Update, context):
     user = result.data[0]
 
     # Link account: verify and save chat ID
-    supabase.table("users").update({
-        "telegram_verified": True,
-        "telegram_chat_id": chat_id,
-        "telegram_otp": None
-    }).eq("id", user["id"]).execute()
+    supabase.from_("users") \
+        .update({
+            "telegram_verified": True,
+            "telegram_chat_id": chat_id,
+            "telegram_otp": None
+        }) \
+        .eq("id", user["id"]) \
+        .execute()
+
+
 
     await update.message.reply_text("✅ Your NutritionLM account is now linked!")
     user_state[chat_id] = None
