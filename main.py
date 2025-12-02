@@ -9,6 +9,7 @@ from telegram.ext import (
 )
 import os
 from supabase import create_client
+from mimetypes import guess_type
 
 # Supabase connection
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
@@ -116,7 +117,17 @@ def photo_handler(update: Update, context: CallbackContext):
 
     file_path = f"{chat_id}/{file_id}.jpg"
 
-    supabase.storage.from_("telegram_photos").upload(file_path, bytes(photo_bytes))
+    # MIME 타입 자동 추출
+    mime_type, _ = guess_type(file_path)
+
+    # Supabase에 업로드 (MIME 타입 포함)
+    supabase.storage.from_("telegram_photos").upload(
+        file_path,
+        bytes(photo_bytes),
+        {
+            "content-type": mime_type or "image/jpeg"
+        }
+    )
 
     supabase.from_("telegram_photos").insert({
         "user_id": user["id"],
