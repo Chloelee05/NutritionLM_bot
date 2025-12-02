@@ -1,12 +1,11 @@
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application,
-    ApplicationBuilder,
+    Updater,
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
-    ContextTypes,
-    filters,
+    Filters,
+    CallbackContext,
 )
 import os
 from supabase import create_client
@@ -26,7 +25,7 @@ user_state = {}  # chat_id → "waiting_for_otp"
 
 
 # /start command handler
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start(update: Update, context: CallbackContext):
 
     main_menu = [
         [KeyboardButton("Today's Nutrition Report")],
@@ -35,7 +34,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = ReplyKeyboardMarkup(main_menu, resize_keyboard=True)
 
-    await update.message.reply_text(
+    update.message.reply_text(
         "Welcome! How can I assist you today?",
         reply_markup=reply_markup,
     )
@@ -44,13 +43,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Handle OTP input
-async def handle_otp(update: Update, context):
+def handle_otp(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     otp_input = update.message.text.strip()
 
     # Validate OTP format
     if not otp_input.isdigit() or len(otp_input) != 6:
-        await update.message.reply_text("❌ Invalid OTP. Please enter a 6-digit number.")
+        update.message.reply_text("❌ Invalid OTP. Please enter a 6-digit number.")
         return
 
     # Check OTP in Supabase
@@ -62,9 +61,8 @@ async def handle_otp(update: Update, context):
         .execute()
     )
 
-
     if len(result.data) == 0:
-        await update.message.reply_text("❌ OTP not found. Please try again.")
+        update.message.reply_text("❌ OTP not found. Please try again.")
         return
 
     user = result.data[0]
@@ -79,25 +77,23 @@ async def handle_otp(update: Update, context):
         .eq("id", user["id"]) \
         .execute()
 
-
-
-    await update.message.reply_text("✅ Your NutritionLM account is now linked!")
+    update.message.reply_text("✅ Your NutritionLM account is now linked!")
     user_state[chat_id] = None
 
 
 # Main text message handler
-async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def message_handler(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     text = update.message.text
 
     # If user is entering OTP
     if user_state.get(chat_id) == "waiting_for_otp":
-        await handle_otp(update, context)
+        handle_otp(update, context)
         return
 
     # If user selects "Connect Website Account"
     if text == "Connect Website Account":
-        await update.message.reply_text(
+        update.message.reply_text(
             "🔗 Please send your 6-digit OTP from the website."
         )
         user_state[chat_id] = "waiting_for_otp"
@@ -111,43 +107,42 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         markup = InlineKeyboardMarkup(faq_buttons)
 
-        await update.message.reply_text(
+        update.message.reply_text(
             "Please choose a question:",
             reply_markup=markup,
         )
 
 
 # Callback button handler (FAQ)
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def button_handler(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    data = query.data
 
-    if query.data == "faq_calorie":
-        await query.edit_message_text("Your calorie goal is automatically set based on your profile!")
-    elif query.data == "faq_accuracy":
-        await query.edit_message_text("AI accuracy may vary depending on photo quality.")
-
-
-# Telegram bot initialization
-application = (
-    ApplicationBuilder()
-    .token(TOKEN)
-    .build()
-)
-
-application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-application.add_handler(CallbackQueryHandler(button_handler))
+    if data == "faq_calorie":
+        query.edit_message_text("Your calorie goal is automatically set based on your profile!")
+    elif data == "faq_accuracy":
+        query.edit_message_text("AI accuracy may vary depending on photo quality!")
 
 
-# Run webhook
+# Run webhook (Render)
 def main():
-    application.run_webhook(
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    # Handlers
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, message_handler))
+    dp.add_handler(CallbackQueryHandler(button_handler))
+
+    # Start webhook
+    updater.start_webhook(
         listen="0.0.0.0",
         port=10000,
+        url_path="/",
         webhook_url=WEBHOOK_URL,
-        secret_token=None,
     )
+
+    updater.idle()
 
 
 if __name__ == "__main__":
