@@ -30,6 +30,7 @@ def start(update: Update, context: CallbackContext):
     main_menu = [
         [KeyboardButton("Today's Nutrition Report")],
         [KeyboardButton("Connect Website Account")],
+        [KeyboardButton("Upload Photo")],
         [KeyboardButton("FAQ")],
     ]
     reply_markup = ReplyKeyboardMarkup(main_menu, resize_keyboard=True)
@@ -81,6 +82,51 @@ def handle_otp(update: Update, context: CallbackContext):
     user_state[chat_id] = None
 
 
+# photo upload handler
+def photo_handler(update: Update, context: CallbackContext):
+    chat_id = update.message.chat_id
+
+    # User must explicitly choose Upload Photo before sending
+    if user_state.get(chat_id) != "upload_photo_waiting":
+        update.message.reply_text("❗ Please tap 'Upload Photo' from the menu first.")
+        return
+
+    # Reset state after receiving photo
+    user_state[chat_id] = None
+
+    # Check verification
+    user_query = (
+        supabase
+        .from_("users")
+        .select("*")
+        .eq("telegram_chat_id", chat_id)
+        .execute()
+    )
+
+    if len(user_query.data) == 0 or not user_query.data[0]["telegram_verified"]:
+        update.message.reply_text("❌ Please connect your website account first.")
+        return
+
+    user = user_query.data[0]
+
+    # Use largest file version
+    file_id = update.message.photo[-1].file_id
+    file = context.bot.get_file(file_id)
+    photo_bytes = file.download_as_bytearray()
+
+    file_path = f"{chat_id}/{file_id}.jpg"
+
+    supabase.storage.from_("telegram_photos").upload(file_path, bytes(photo_bytes))
+
+    supabase.from_("telegram_photos").insert({
+        "user_id": user["id"],
+        "file_path": file_path
+    }).execute()
+
+    update.message.reply_text("📸 Photo successfully uploaded to your NutritionLM library!")
+
+
+
 # Main text message handler
 def message_handler(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
@@ -111,7 +157,10 @@ def message_handler(update: Update, context: CallbackContext):
             "Please choose a question:",
             reply_markup=markup,
         )
-
+    elif text == "Upload Photo":
+        update.message.reply_text("📸 Please send me the photo you want to upload!")
+        user_state[chat_id] = "upload_photo_waiting"
+        return
 
 # Callback button handler (FAQ)
 def button_handler(update: Update, context: CallbackContext):
@@ -133,6 +182,7 @@ def main():
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, message_handler))
     dp.add_handler(CallbackQueryHandler(button_handler))
+    dp.add_handler(MessageHandler(Filters.photo, photo_handler))
 
     # Start webhook
     updater.start_webhook(
