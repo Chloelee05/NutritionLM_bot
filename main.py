@@ -121,7 +121,7 @@ def photo_handler(update: Update, context: CallbackContext):
 
     supabase.storage.from_("telegram_photos").upload(
         file_path,
-        file=photo_bytes,
+        file=bytes(photo_bytes),
         file_options={"content-type": mime_type or "image/jpeg"}
     )
 
