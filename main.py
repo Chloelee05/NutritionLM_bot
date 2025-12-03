@@ -177,14 +177,17 @@ def photo_handler(update: Update, context: CallbackContext):
         file_options={"content-type": mime_type or "image/jpeg"}
     )
 
-    # Insert into DB
+    public_url = f"{SUPABASE_URL}/storage/v1/object/public/telegram_photos/{file_path}"
+
+    # Save telegram photo entry
     supabase.from_("telegram_photos").insert({
         "user_id": user["id"],
-        "file_path": file_path
+        "file_path": file_path,
+        "public_url": public_url,    
     }).execute()
 
     update.message.reply_text(
-        "📸 Photo successfully uploaded to your NutritionLM library!",
+        "📸 Photo successfully uploaded! Analyzing ingredients...",
         parse_mode="Markdown"
     )
 
@@ -216,7 +219,7 @@ def photo_handler(update: Update, context: CallbackContext):
 
     supabase.from_("food_logs").insert({
         "user_id": user["id"],
-        "image_url": file_path,  
+        "image_url": public_url,  
         "record_date": now.date().isoformat(),
         "record_time": now.time().strftime("%H:%M:%S"),
         "food_type": food_type,
