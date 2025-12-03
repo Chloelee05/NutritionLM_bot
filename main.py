@@ -123,7 +123,7 @@ def handle_otp(update: Update, context: CallbackContext):
     }).eq("id", user["id"]).execute()
 
     update.message.reply_text(
-        "✅ Your NutritionLM account is now linked!",
+        "✅ Your NutritionLM account is now linked! Please refresh the website!",
         parse_mode="Markdown"
     )
 
@@ -163,6 +163,22 @@ def photo_handler(update: Update, context: CallbackContext):
 
     file_path = f"{chat_id}/{file_id}.jpg"
     mime_type, _ = guess_type(file_path)
+    
+    duplicate_check = (
+        supabase.from_("telegram_photos")
+        .select("*")
+        .eq("file_path", file_path)
+        .execute()
+    )
+
+    if len(duplicate_check.data) > 0:
+        update.message.reply_text(
+            "⚠️ This photo is already saved in your library.\n"
+            "Returning to main menu...",
+            parse_mode="Markdown"
+        )
+        start_main_menu(update, context)
+        return
 
     supabase.storage.from_("telegram_photos").upload(
         file_path,
