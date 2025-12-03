@@ -14,17 +14,14 @@ from mimetypes import guess_type
 # Supabase connection
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY")
-
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Telegram bot configuration
 TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-# Track user state
-user_state = {}  # chat_id → string
+user_state = {}
 
-# FAQ content
 FAQ_ITEMS = {
     "faq_calorie": "🔢 *Calorie Goal*\nYour calorie goal is automatically set based on your profile details.",
     "faq_accuracy": "🤖 *AI Accuracy*\nAI accuracy depends on photo quality and ingredient clarity.",
@@ -46,9 +43,34 @@ FAQ_TITLES = {
 SEARCH_BUTTON_KEY = "faq_search"
 
 
-# --------------------------
+# ---------------------------------------------------
+# MAIN MENU BUILDER
+# ---------------------------------------------------
+def start_main_menu(update: Update, context: CallbackContext):
+
+    main_menu = [
+        [KeyboardButton("Today's Nutrition Report")],
+        [KeyboardButton("Connect Website Account")],
+        [KeyboardButton("Upload Photo")],
+        [KeyboardButton("FAQ")],
+    ]
+
+    reply_markup = ReplyKeyboardMarkup(main_menu, resize_keyboard=True)
+
+    update.message.reply_text(
+        "↩️ *You are now back at the main menu!*\n"
+        "Please choose an option below.\n\n",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+    user_state[update.message.chat_id] = None
+
+
+
+# ---------------------------------------------------
 # START COMMAND
-# --------------------------
+# ---------------------------------------------------
 def start(update: Update, context: CallbackContext):
 
     main_menu = [
@@ -57,19 +79,22 @@ def start(update: Update, context: CallbackContext):
         [KeyboardButton("Upload Photo")],
         [KeyboardButton("FAQ")],
     ]
+
     reply_markup = ReplyKeyboardMarkup(main_menu, resize_keyboard=True)
 
     update.message.reply_text(
         "Welcome! How can I assist you today?",
         reply_markup=reply_markup,
+        parse_mode="Markdown"
     )
 
     user_state[update.message.chat_id] = None
 
 
-# --------------------------
-# OTP INPUT HANDLER
-# --------------------------
+
+# ---------------------------------------------------
+# OTP HANDLER
+# ---------------------------------------------------
 def handle_otp(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     otp_input = update.message.text.strip()
@@ -79,8 +104,7 @@ def handle_otp(update: Update, context: CallbackContext):
         return
 
     result = (
-        supabase
-        .from_("users")
+        supabase.from_("users")
         .select("*")
         .eq("telegram_otp", otp_input)
         .execute()
@@ -98,13 +122,18 @@ def handle_otp(update: Update, context: CallbackContext):
         "telegram_otp": None
     }).eq("id", user["id"]).execute()
 
-    update.message.reply_text("✅ Your NutritionLM account is now linked!")
+    update.message.reply_text(
+        "✅ Your NutritionLM account is now linked!",
+        parse_mode="Markdown"
+    )
+
     user_state[chat_id] = None
 
 
-# --------------------------
+
+# ---------------------------------------------------
 # PHOTO UPLOAD HANDLER
-# --------------------------
+# ---------------------------------------------------
 def photo_handler(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
 
@@ -115,8 +144,7 @@ def photo_handler(update: Update, context: CallbackContext):
     user_state[chat_id] = None
 
     user_query = (
-        supabase
-        .from_("users")
+        supabase.from_("users")
         .select("*")
         .eq("telegram_chat_id", chat_id)
         .execute()
@@ -128,12 +156,12 @@ def photo_handler(update: Update, context: CallbackContext):
 
     user = user_query.data[0]
 
+    # Save photo
     file_id = update.message.photo[-1].file_id
     file = context.bot.get_file(file_id)
     photo_bytes = file.download_as_bytearray()
 
     file_path = f"{chat_id}/{file_id}.jpg"
-
     mime_type, _ = guess_type(file_path)
 
     supabase.storage.from_("telegram_photos").upload(
@@ -147,50 +175,48 @@ def photo_handler(update: Update, context: CallbackContext):
         "file_path": file_path
     }).execute()
 
-    update.message.reply_text("📸 Photo successfully uploaded to your NutritionLM library!")
+    update.message.reply_text(
+        "📸 Photo successfully uploaded to your NutritionLM library!",
+        parse_mode="Markdown"
+    )
 
 
-# --------------------------
-# BUILD FAQ MENU UI
-# --------------------------
+
+# ---------------------------------------------------
+# FAQ BUTTONS (ONE COLUMN)
+# ---------------------------------------------------
 def build_faq_menu():
-    faq_buttons = []
-    row = []
-
-    # Search button at top
-    row.append(InlineKeyboardButton("🔍 Search FAQ", callback_data=SEARCH_BUTTON_KEY))
+    buttons = [[InlineKeyboardButton("🔍 Search FAQ", callback_data=SEARCH_BUTTON_KEY)]]
 
     for key, title in FAQ_TITLES.items():
-        if len(row) == 2:
-            faq_buttons.append(row)
-            row = []
+        buttons.append([InlineKeyboardButton(title, callback_data=key)])
 
-        row.append(InlineKeyboardButton(title, callback_data=key))
-
-    if row:
-        faq_buttons.append(row)
-
-    return InlineKeyboardMarkup(faq_buttons)
+    return InlineKeyboardMarkup(buttons)
 
 
-# --------------------------
-# TEXT MESSAGE HANDLER
-# --------------------------
+
+# ---------------------------------------------------
+# MESSAGE HANDLER
+# ---------------------------------------------------
 def message_handler(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     text = update.message.text.strip()
 
+    # BACK COMMAND
+    if text.lower() == "back":
+        start_main_menu(update, context)
+        return
+
     # FAQ SEARCH MODE
     if user_state.get(chat_id) == "faq_search_mode":
         keyword = text.lower()
-        matches = []
-
-        for key, content in FAQ_ITEMS.items():
-            if keyword in content.lower() or keyword in FAQ_TITLES[key].lower():
-                matches.append(key)
+        matches = [key for key in FAQ_ITEMS if keyword in FAQ_ITEMS[key].lower() or keyword in FAQ_TITLES[key].lower()]
 
         if not matches:
-            update.message.reply_text("❌ No matching FAQ found. Try another keyword.")
+            update.message.reply_text(
+                "❌ No matching FAQ found. Try again.\n\n➡️ Type *back* to return to menu.",
+                parse_mode="Markdown"
+            )
             return
 
         buttons = [[InlineKeyboardButton(FAQ_TITLES[k], callback_data=k)] for k in matches]
@@ -211,52 +237,55 @@ def message_handler(update: Update, context: CallbackContext):
 
     # Connect Website Account
     if text == "Connect Website Account":
-        update.message.reply_text("🔗 Please send your 6-digit OTP from the website.")
+        update.message.reply_text(
+            "🔗 Please send your 6-digit OTP from the website.\n\n➡️ Type *back* to return to menu.",
+            parse_mode="Markdown"
+        )
         user_state[chat_id] = "waiting_for_otp"
         return
 
     # Upload Photo
     if text == "Upload Photo":
         update.message.reply_text(
-            "📸 Please send me the photo you want to upload!\n\n"
-            "Reminder: All photos uploaded will be automatically logged into your food diary."
+            "📸 Please send your photo!\n\n➡️ Type *back* to cancel and return to main menu.",
+            parse_mode="Markdown"
         )
         user_state[chat_id] = "upload_photo_waiting"
         return
 
     # FAQ MENU
     if text == "FAQ":
-        markup = build_faq_menu()
         update.message.reply_text(
-            "📚 *FAQ Menu*\nChoose a topic:",
-            reply_markup=markup,
+            "📚 *FAQ Menu*\nChoose a topic:\n\n➡️ Type *back* to return to main menu.",
+            reply_markup=build_faq_menu(),
             parse_mode="Markdown"
         )
         user_state[chat_id] = "faq_menu"
         return
 
 
-# --------------------------
-# BUTTON HANDLER (FAQ / SEARCH)
-# --------------------------
+
+# ---------------------------------------------------
+# BUTTON HANDLER
+# ---------------------------------------------------
 def button_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     key = query.data
     chat_id = query.message.chat_id
 
-    # Search FAQ button
+    # Search FAQ mode
     if key == SEARCH_BUTTON_KEY:
         query.edit_message_text(
-            "🔍 *Enter a keyword to search FAQ:*",
+            "🔍 *Enter a keyword to search FAQ:*\n\n➡️ Type *back* to return.",
             parse_mode="Markdown"
         )
         user_state[chat_id] = "faq_search_mode"
         return
 
-    # BACK BUTTON
+    # Return to FAQ menu
     if key == "faq_back":
         query.edit_message_text(
-            "📚 *FAQ Menu*\nChoose a topic:",
+            "📚 *FAQ Menu*\nChoose a topic:\n\n➡️ Type *back* to return.",
             reply_markup=build_faq_menu(),
             parse_mode="Markdown"
         )
@@ -264,13 +293,9 @@ def button_handler(update: Update, context: CallbackContext):
 
     # FAQ detail page
     if key in FAQ_ITEMS:
-        back_button = InlineKeyboardMarkup([
-            [InlineKeyboardButton("⬅️ Back", callback_data="faq_back")]
-        ])
-
         query.edit_message_text(
-            FAQ_ITEMS[key],
-            reply_markup=back_button,
+            FAQ_ITEMS[key] + "\n\n➡️ Type *back* to return.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="faq_back")]]),
             parse_mode="Markdown"
         )
         return
@@ -278,9 +303,10 @@ def button_handler(update: Update, context: CallbackContext):
     query.edit_message_text("❓ Unknown FAQ option.")
 
 
-# --------------------------
-# RUN WEBHOOK
-# --------------------------
+
+# ---------------------------------------------------
+# WEBHOOK SERVER
+# ---------------------------------------------------
 def main():
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
