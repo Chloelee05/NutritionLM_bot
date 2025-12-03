@@ -10,6 +10,7 @@ from telegram.ext import (
 import os
 from supabase import create_client
 from mimetypes import guess_type
+import requests
 
 # Supabase connection
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
@@ -186,6 +187,46 @@ def photo_handler(update: Update, context: CallbackContext):
         "📸 Photo successfully uploaded to your NutritionLM library!",
         parse_mode="Markdown"
     )
+
+    # ---- Call ingredients API ----
+    api_ingredients_url = "https://nutritionlm-bot.onrender.com/api/ingredients"
+    files = {"image": bytes(photo_bytes)}
+
+    ingredients_res = requests.post(api_ingredients_url, files=files).json()
+
+    food_name = ingredients_res.get("food_name", "Unknown Food")
+    ingredients = ingredients_res.get("ingredients", [])
+    food_type = ingredients_res.get("food_type")  # 없으면 None
+
+
+    # ---- Call nutrition API ----
+    api_nutrition_url = "https://nutritionlm-bot.onrender.com/api/nutritionist"
+    nutrition_res = requests.post(api_nutrition_url, json={
+        "food_name": food_name,
+        "ingredients": ingredients
+    }).json()
+
+    nutrition = nutrition_res.get("nutritions", {})
+
+
+    # ---- Insert into food_logs ----
+    from datetime import datetime
+
+    now = datetime.now()
+
+    supabase.from_("food_logs").insert({
+        "user_id": user["id"],
+        "image_url": file_path,  # 너의 테이블에서는 image_url 이 컬럼 이름임
+        "record_date": now.date().isoformat(),
+        "record_time": now.time().strftime("%H:%M:%S"),
+        "food_type": food_type,
+        "ingredients": ingredients,
+        "nutrition": nutrition,
+        "food_name": food_name,
+        "food_description": None,   # 나중에 OpenAI API 쓸거면 여기 자동 생성 가능
+        "healthy_level": None       # 나중에 점수화하면 넣으면 됨
+    }).execute()
+
 
 
 def build_faq_menu():
