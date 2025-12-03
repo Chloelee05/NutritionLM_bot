@@ -51,7 +51,7 @@ FAQ_TITLES = {
 }
 
 SEARCH_BUTTON_KEY = "faq_search"
-
+WEBAPP_URL = "https://nutrition-lm.vercel.app"
 
 def start_main_menu(update: Update, context: CallbackContext):
 
@@ -189,18 +189,18 @@ def photo_handler(update: Update, context: CallbackContext):
     )
 
     # ---- Call ingredients API ----
-    api_ingredients_url = "https://nutritionlm-bot.onrender.com/api/ingredients"
+    api_ingredients_url = f"{WEBAPP_URL}/api/ingredients"
     files = {"image": bytes(photo_bytes)}
 
     ingredients_res = requests.post(api_ingredients_url, files=files).json()
 
     food_name = ingredients_res.get("food_name", "Unknown Food")
     ingredients = ingredients_res.get("ingredients", [])
-    food_type = ingredients_res.get("food_type")  # 없으면 None
+    food_type = ingredients_res.get("food_type")  
 
 
     # ---- Call nutrition API ----
-    api_nutrition_url = "https://nutritionlm-bot.onrender.com/api/nutritionist"
+    api_nutrition_url = f"{WEBAPP_URL}/api/nutritionist"
     nutrition_res = requests.post(api_nutrition_url, json={
         "food_name": food_name,
         "ingredients": ingredients
@@ -216,15 +216,15 @@ def photo_handler(update: Update, context: CallbackContext):
 
     supabase.from_("food_logs").insert({
         "user_id": user["id"],
-        "image_url": file_path,  # 너의 테이블에서는 image_url 이 컬럼 이름임
+        "image_url": file_path,  
         "record_date": now.date().isoformat(),
         "record_time": now.time().strftime("%H:%M:%S"),
         "food_type": food_type,
         "ingredients": ingredients,
         "nutrition": nutrition,
         "food_name": food_name,
-        "food_description": None,   # 나중에 OpenAI API 쓸거면 여기 자동 생성 가능
-        "healthy_level": None       # 나중에 점수화하면 넣으면 됨
+        "food_description": None,   
+        "healthy_level": None      
     }).execute()
 
 
