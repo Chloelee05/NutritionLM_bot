@@ -25,7 +25,16 @@ user_state = {}
 FAQ_ITEMS = {
     "faq_calorie": "🔢 *Calorie Goal*\nYour calorie goal is automatically set based on your profile details.",
     "faq_accuracy": "🤖 *AI Accuracy*\nAI accuracy depends on photo quality and ingredient clarity.",
-    "faq_upload": "📸 *How to Upload Photos?*\nTap 'Upload Photo' → Send your food photo → We save it automatically.",
+    
+    # UPDATED FAQ ANSWER
+    "faq_upload": (
+        "📸 *How to Upload Photos?*\n"
+        "You don't need to tap anything.\n\n"
+        "➡️ Simply send a photo from your gallery while in the main menu.\n"
+        "➡️ All photos you send will automatically be saved to your NutritionLM Food Log.\n"
+        "➡️ If you try to upload the same photo again, we will detect it and warn you.\n"
+    ),
+
     "faq_report": "📊 *Weekly Reports*\nVisit the website → Profile → Weekly Reports section.",
     "faq_privacy": "🔐 *Privacy*\nAll your data is securely stored with Supabase RLS policies.",
     "faq_support": "🛟 *Support*\nNeed help? Contact support@nutritionlm.com.",
@@ -43,15 +52,11 @@ FAQ_TITLES = {
 SEARCH_BUTTON_KEY = "faq_search"
 
 
-# ---------------------------------------------------
-# MAIN MENU BUILDER
-# ---------------------------------------------------
 def start_main_menu(update: Update, context: CallbackContext):
 
     main_menu = [
         [KeyboardButton("Today's Nutrition Report")],
         [KeyboardButton("Connect Website Account")],
-        [KeyboardButton("Upload Photo")],
         [KeyboardButton("FAQ")],
     ]
 
@@ -59,7 +64,7 @@ def start_main_menu(update: Update, context: CallbackContext):
 
     update.message.reply_text(
         "↩️ *You are now back at the main menu!*\n"
-        "Please choose an option below.\n\n",
+        "Simply upload a photo anytime to save it.\n\n",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
@@ -67,23 +72,18 @@ def start_main_menu(update: Update, context: CallbackContext):
     user_state[update.message.chat_id] = None
 
 
-
-# ---------------------------------------------------
-# START COMMAND
-# ---------------------------------------------------
 def start(update: Update, context: CallbackContext):
 
     main_menu = [
         [KeyboardButton("Today's Nutrition Report")],
         [KeyboardButton("Connect Website Account")],
-        [KeyboardButton("Upload Photo")],
         [KeyboardButton("FAQ")],
     ]
 
     reply_markup = ReplyKeyboardMarkup(main_menu, resize_keyboard=True)
 
     update.message.reply_text(
-        "Welcome! How can I assist you today?",
+        "Welcome! How can I assist you today?\n\n📸 You may upload photos anytime.",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
@@ -91,10 +91,6 @@ def start(update: Update, context: CallbackContext):
     user_state[update.message.chat_id] = None
 
 
-
-# ---------------------------------------------------
-# OTP HANDLER
-# ---------------------------------------------------
 def handle_otp(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     otp_input = update.message.text.strip()
@@ -130,19 +126,10 @@ def handle_otp(update: Update, context: CallbackContext):
     user_state[chat_id] = None
 
 
-
-# ---------------------------------------------------
-# PHOTO UPLOAD HANDLER
-# ---------------------------------------------------
 def photo_handler(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
 
-    if user_state.get(chat_id) != "upload_photo_waiting":
-        update.message.reply_text("❗ Please tap 'Upload Photo' from the menu first.")
-        return
-
-    user_state[chat_id] = None
-
+    # Fetch user
     user_query = (
         supabase.from_("users")
         .select("*")
@@ -150,20 +137,22 @@ def photo_handler(update: Update, context: CallbackContext):
         .execute()
     )
 
+    # User not linked yet
     if len(user_query.data) == 0 or not user_query.data[0]["telegram_verified"]:
         update.message.reply_text("❌ Please connect your website account first.")
         return
 
     user = user_query.data[0]
 
-    # Save photo
+    # Extract image file
     file_id = update.message.photo[-1].file_id
     file = context.bot.get_file(file_id)
     photo_bytes = file.download_as_bytearray()
 
     file_path = f"{chat_id}/{file_id}.jpg"
     mime_type, _ = guess_type(file_path)
-    
+
+    # Duplicate check
     duplicate_check = (
         supabase.from_("telegram_photos")
         .select("*")
@@ -180,12 +169,14 @@ def photo_handler(update: Update, context: CallbackContext):
         start_main_menu(update, context)
         return
 
+    # Upload to Supabase storage
     supabase.storage.from_("telegram_photos").upload(
         file_path,
         file=bytes(photo_bytes),
         file_options={"content-type": mime_type or "image/jpeg"}
     )
 
+    # Insert into DB
     supabase.from_("telegram_photos").insert({
         "user_id": user["id"],
         "file_path": file_path
@@ -197,10 +188,6 @@ def photo_handler(update: Update, context: CallbackContext):
     )
 
 
-
-# ---------------------------------------------------
-# FAQ BUTTONS (ONE COLUMN)
-# ---------------------------------------------------
 def build_faq_menu():
     buttons = [[InlineKeyboardButton("🔍 Search FAQ", callback_data=SEARCH_BUTTON_KEY)]]
 
@@ -210,10 +197,6 @@ def build_faq_menu():
     return InlineKeyboardMarkup(buttons)
 
 
-
-# ---------------------------------------------------
-# MESSAGE HANDLER
-# ---------------------------------------------------
 def message_handler(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     text = update.message.text.strip()
@@ -260,15 +243,6 @@ def message_handler(update: Update, context: CallbackContext):
         user_state[chat_id] = "waiting_for_otp"
         return
 
-    # Upload Photo
-    if text == "Upload Photo":
-        update.message.reply_text(
-            "📸 Please send your photo!\n\n➡️ Type *back* to cancel and return to main menu.",
-            parse_mode="Markdown"
-        )
-        user_state[chat_id] = "upload_photo_waiting"
-        return
-
     # FAQ MENU
     if text == "FAQ":
         update.message.reply_text(
@@ -281,9 +255,6 @@ def message_handler(update: Update, context: CallbackContext):
 
 
 
-# ---------------------------------------------------
-# BUTTON HANDLER
-# ---------------------------------------------------
 def button_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     key = query.data
@@ -307,7 +278,7 @@ def button_handler(update: Update, context: CallbackContext):
         )
         return
 
-    # FAQ detail page
+    # FAQ detail
     if key in FAQ_ITEMS:
         query.edit_message_text(
             FAQ_ITEMS[key] + "\n\n➡️ Type *back* to return.",
@@ -320,9 +291,6 @@ def button_handler(update: Update, context: CallbackContext):
 
 
 
-# ---------------------------------------------------
-# WEBHOOK SERVER
-# ---------------------------------------------------
 def main():
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
@@ -330,6 +298,7 @@ def main():
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, message_handler))
     dp.add_handler(CallbackQueryHandler(button_handler))
+
     dp.add_handler(MessageHandler(Filters.photo, photo_handler))
 
     updater.start_webhook(
