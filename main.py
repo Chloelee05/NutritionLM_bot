@@ -56,7 +56,6 @@ WEBAPP_URL = "https://nutrition-lm.vercel.app"
 def start_main_menu(update: Update, context: CallbackContext):
 
     main_menu = [
-        [KeyboardButton("Today's Nutrition Report")],
         [KeyboardButton("Connect Website Account")],
         [KeyboardButton("FAQ")],
     ]
@@ -76,7 +75,6 @@ def start_main_menu(update: Update, context: CallbackContext):
 def start(update: Update, context: CallbackContext):
 
     main_menu = [
-        [KeyboardButton("Today's Nutrition Report")],
         [KeyboardButton("Connect Website Account")],
         [KeyboardButton("FAQ")],
     ]
