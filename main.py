@@ -210,6 +210,16 @@ def photo_handler(update: Update, context: CallbackContext):
         logger.info(f"Ingredients API status code: {ingredients_response.status_code}")
         logger.info(f"Ingredients API response text (first 200 chars): {ingredients_response.text[:200]}")
         
+        # Handle 404 specifically (nothing detected)
+        if ingredients_response.status_code == 404:
+            logger.info("Ingredients API returned 404 - nothing detected")
+            update.message.reply_text(
+                "❌ *Nothing has been detected*\n\n"
+                "Please upload a food photo.",
+                parse_mode="Markdown"
+            )
+            return
+        
         ingredients_response.raise_for_status()  # Raises an HTTPError for bad responses
         
         # Check if response has content
@@ -237,6 +247,16 @@ def photo_handler(update: Update, context: CallbackContext):
         food_type = ingredients_res.get("food_type")
         
         logger.info(f"Extracted - food_name: {food_name}, ingredients: {ingredients}, food_type: {food_type}")
+        
+        # Check if food was not detected
+        if food_name and food_name.lower() == "not a food":
+            logger.info("Food not detected in image")
+            update.message.reply_text(
+                "❌ *It's not a food*\n\n"
+                "Please upload a photo of food.",
+                parse_mode="Markdown"
+            )
+            return
         
     except requests.exceptions.RequestException as e:
         logger.error(f"Request exception calling ingredients API: {str(e)}")
