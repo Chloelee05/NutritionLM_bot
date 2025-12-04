@@ -13,6 +13,15 @@ from mimetypes import guess_type
 import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from uuid import uuid4
+import logging
+
+# Set up logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Supabase connection
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
@@ -193,46 +202,151 @@ def photo_handler(update: Update, context: CallbackContext):
 
     # ---- Call ingredients API ----
     api_ingredients_url = f"{WEBAPP_URL}/api/ingredients"
-    files = {"image": bytes(photo_bytes)}
+    files = {"image": ("photo.jpg", bytes(photo_bytes), "image/jpeg")}
 
-    ingredients_res = requests.post(api_ingredients_url, files=files).json()
+    try:
+        logger.info(f"Calling ingredients API: {api_ingredients_url}")
+        ingredients_response = requests.post(api_ingredients_url, files=files, timeout=30)
+        logger.info(f"Ingredients API status code: {ingredients_response.status_code}")
+        logger.info(f"Ingredients API response text (first 200 chars): {ingredients_response.text[:200]}")
+        
+        ingredients_response.raise_for_status()  # Raises an HTTPError for bad responses
+        
+        # Check if response has content
+        if not ingredients_response.text or ingredients_response.text.strip() == "":
+            logger.error("Ingredients API returned empty response")
+            update.message.reply_text(
+                "❌ Ingredients API returned empty response. Please try again.",
+                parse_mode="Markdown"
+            )
+            return
+        
+        ingredients_res = ingredients_response.json()
+        logger.info(f"Ingredients API response: {ingredients_res}")
+        
+        if not ingredients_res:
+            logger.error("Ingredients API returned empty data dict")
+            update.message.reply_text(
+                "❌ Ingredients API returned empty data. Please try again.",
+                parse_mode="Markdown"
+            )
+            return
 
-    food_name = ingredients_res.get("food_name", "Unknown Food")
-    ingredients = ingredients_res.get("ingredients", [])
-    food_type = ingredients_res.get("food_type")  
-
+        food_name = ingredients_res.get("food_name", "Unknown Food")
+        ingredients = ingredients_res.get("ingredients", [])
+        food_type = ingredients_res.get("food_type")
+        
+        logger.info(f"Extracted - food_name: {food_name}, ingredients: {ingredients}, food_type: {food_type}")
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Request exception calling ingredients API: {str(e)}")
+        update.message.reply_text(
+            f"❌ Error calling ingredients API: {str(e)}",
+            parse_mode="Markdown"
+        )
+        return
+    except ValueError as e:
+        logger.error(f"ValueError parsing ingredients API response: {str(e)}")
+        update.message.reply_text(
+            f"❌ Invalid response from ingredients API: {str(e)}",
+            parse_mode="Markdown"
+        )
+        return
 
     # ---- Call nutrition API ----
     api_nutrition_url = f"{WEBAPP_URL}/api/nutritionist"
-    nutrition_res = requests.post(api_nutrition_url, json={
-        "food_name": food_name,
-        "ingredients": ingredients
-    }).json()
+    
+    try:
+        nutrition_payload = {
+            "food_name": food_name,
+            "ingredients": ingredients
+        }
+        logger.info(f"Calling nutrition API: {api_nutrition_url} with payload: {nutrition_payload}")
+        
+        nutrition_response = requests.post(
+            api_nutrition_url, 
+            json=nutrition_payload,
+            timeout=30
+        )
+        logger.info(f"Nutrition API status code: {nutrition_response.status_code}")
+        logger.info(f"Nutrition API response text (first 200 chars): {nutrition_response.text[:200]}")
+        
+        nutrition_response.raise_for_status()  # Raises an HTTPError for bad responses
+        
+        # Check if response has content
+        if not nutrition_response.text or nutrition_response.text.strip() == "":
+            logger.error("Nutrition API returned empty response")
+            update.message.reply_text(
+                "❌ Nutrition API returned empty response. Please try again.",
+                parse_mode="Markdown"
+            )
+            return
+        
+        nutrition_res = nutrition_response.json()
+        logger.info(f"Nutrition API response: {nutrition_res}")
+        
+        if not nutrition_res:
+            logger.error("Nutrition API returned empty data dict")
+            update.message.reply_text(
+                "❌ Nutrition API returned empty data. Please try again.",
+                parse_mode="Markdown"
+            )
+            return
 
-    nutrition = nutrition_res.get("nutritions", {})
+        nutrition = nutrition_res.get("nutritions", {})
+        logger.info(f"Extracted nutrition: {nutrition}")
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Request exception calling nutrition API: {str(e)}")
+        update.message.reply_text(
+            f"❌ Error calling nutrition API: {str(e)}",
+            parse_mode="Markdown"
+        )
+        return
+    except ValueError as e:
+        logger.error(f"ValueError parsing nutrition API response: {str(e)}")
+        update.message.reply_text(
+            f"❌ Invalid response from nutrition API: {str(e)}",
+            parse_mode="Markdown"
+        )
+        return
 
 
     # ---- Insert into food_logs ----
-    from datetime import datetime
-
-    now = datetime.now()
-
     # Singapore Timezone (UTC+8)
     sgt = ZoneInfo("Asia/Singapore")
     now = datetime.now(sgt)
 
-    supabase.from_("food_logs").insert({
-        "user_id": user["id"],
-        "image_url": public_url,  
-        "record_date": now.date().isoformat(),
-        "record_time": now.time().strftime("%H:%M:%S"),
-        "food_type": food_type,
-        "ingredients": ingredients,
-        "nutrition": nutrition,
-        "food_name": food_name,
-        "food_description": None,
-        "healthy_level": None      
-    }).execute()
+    try:
+        supabase.from_("food_logs").insert({
+            "user_id": user["id"],
+            "image_url": public_url,  
+            "record_date": now.date().isoformat(),
+            "record_time": now.time().strftime("%H:%M:%S"),
+            "food_type": food_type,
+            "ingredients": ingredients,
+            "nutrition": nutrition,
+            "food_name": food_name,
+            "food_description": None,
+            "healthy_level": None      
+        }).execute()
+        
+        logger.info("Successfully saved food log to database")
+        
+        update.message.reply_text(
+            f"✅ *Analysis Complete!*\n\n"
+            f"🍽️ Food: {food_name}\n"
+            f"📊 Nutrition data saved to your food log.\n\n"
+            f"View your logs on the website!",
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error saving to food_logs: {str(e)}")
+        update.message.reply_text(
+            f"⚠️ Photo uploaded but error saving to database: {str(e)}",
+            parse_mode="Markdown"
+        )
 
 
 def build_faq_menu():
