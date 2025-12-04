@@ -11,6 +11,8 @@ import os
 from supabase import create_client
 from mimetypes import guess_type
 import requests
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # Supabase connection
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
@@ -215,6 +217,10 @@ def photo_handler(update: Update, context: CallbackContext):
 
     now = datetime.now()
 
+    # Singapore Timezone (UTC+8)
+    sgt = ZoneInfo("Asia/Singapore")
+    now = datetime.now(sgt)
+
     supabase.from_("food_logs").insert({
         "user_id": user["id"],
         "image_url": public_url,  
@@ -224,10 +230,9 @@ def photo_handler(update: Update, context: CallbackContext):
         "ingredients": ingredients,
         "nutrition": nutrition,
         "food_name": food_name,
-        "food_description": None,   
+        "food_description": None,
         "healthy_level": None      
     }).execute()
-
 
 
 def build_faq_menu():
